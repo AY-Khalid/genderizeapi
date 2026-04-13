@@ -102,7 +102,7 @@ curl "http://localhost:8000/api/classify?name=khalid"
 
 ```json
 {
-  "status": "success",
+  "success": 200,
   "data": {
     "name": "khalid",
     "gender": "male",
@@ -206,3 +206,4 @@ starlette
 
 ## License
 
+This project is open source and available under the [MIT License](LICENSE).
