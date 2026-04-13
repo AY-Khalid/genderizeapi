@@ -86,7 +86,7 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
 
         data = response.json()
 
-        # Edge case: no prediction available
+        
         if data.get("gender") is None or data.get("count") == 0:
             raise HTTPException(
                 status_code=422,
