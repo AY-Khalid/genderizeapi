@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query, HTTPException, Request
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 from datetime import datetime
 import time
