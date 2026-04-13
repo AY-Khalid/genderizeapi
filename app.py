@@ -123,7 +123,7 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
             "processed_at": datetime.utcnow().isoformat(),
         }
 
-        return {"status": "success", "data": transformed}
+        return {"success": 200, "data": transformed}
 
     except HTTPException:
         raise
