@@ -38,6 +38,22 @@ def check_rate_limit(client_ip: str):
 
     LAST_REQUEST_TIME[client_ip] = now
 
+@app.get("/")
+async def root():
+    return {"message": "This is the root endpoint. Use /api/classify?name=yourname to classify a name."}
+@app.get("/api")
+async def api_root():
+    return {"message": "This is /api endpoint. Use /api/classify?name=yourname to classify a name."}
+@app.get("/api/classify/")
+async def classify_without_name(request: Request):
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "status": "error",
+            "message": "Missing required query parameter 'name'",
+        },
+    )
+
 
 @app.get("/api/classify")
 async def classify(request: Request, name: str = Query(..., min_length=1)):
@@ -86,7 +102,7 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
 
         data = response.json()
 
-        
+
         if data.get("gender") is None or data.get("count") == 0:
             raise HTTPException(
                 status_code=422,
