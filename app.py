@@ -1,79 +1,56 @@
 from fastapi import FastAPI, Query, HTTPException, Request
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from datetime import datetime
-import time
-from typing import Dict
 
 app = FastAPI()
 
-
-class SimpleCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        return response
-
-
-app.add_middleware(SimpleCORSMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 GENDERIZE_URL = "https://api.genderize.io"
 
-LAST_REQUEST_TIME: Dict[str, float] = {}
-RATE_LIMIT_SECONDS = 0.5
-
-
-def check_rate_limit(client_ip: str):
-    now = time.time()
-    last_time = LAST_REQUEST_TIME.get(client_ip)
-
-    if last_time is not None and (now - last_time) < RATE_LIMIT_SECONDS:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "status": "error",
-                "message": "Too many requests. Please wait before retrying.",
-            },
-        )
-
-    LAST_REQUEST_TIME[client_ip] = now
 
 @app.get("/")
 async def root():
-    return {"message": "This is the root endpoint. Use /api/classify?name=yourname to classify a name."}
-@app.get("/api")
-async def api_root():
-    return {"message": "This is /api endpoint. Use /api/classify?name=yourname to classify a name."}
-@app.get("/api/classify/")
-async def classify_without_name(request: Request):
-    raise HTTPException(
-        status_code=422,
-        detail={
-            "status": "error",
-            "message": "Missing required query parameter 'name'",
-        },
-    )
+    return {"message": "Use /api/classify?name=yourname"}
 
 
 @app.get("/api/classify")
-async def classify(request: Request, name: str = Query(..., min_length=1)):
-    client_ip = request.client.host
+async def classify(request: Request, name: str = Query(default=None)):
 
-    check_rate_limit(client_ip)
+    # Missing name
+    if name is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "message": "Missing required query parameter 'name'",
+            },
+        )
+
+    # Empty name
+    if name.strip() == "":
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Name cannot be empty"},
+        )
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(GENDERIZE_URL, params={"name": name})
 
-        if response.status_code == 400:
+        if response.status_code >= 500:
             raise HTTPException(
-                status_code=400,
-                detail={"status": "error", "message": "Bad request to Genderize API"},
-            )
-        elif response.status_code == 422:
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "error", "message": "Invalid input provided"},
+                status_code=502,
+                detail={
+                    "status": "error",
+                    "message": "Genderize API is currently unavailable",
+                },
             )
         elif response.status_code == 429:
             raise HTTPException(
@@ -81,14 +58,6 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
                 detail={
                     "status": "error",
                     "message": "Genderize API rate limit exceeded",
-                },
-            )
-        elif response.status_code >= 500:
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "status": "error",
-                    "message": "Genderize API is currently unavailable",
                 },
             )
         elif response.status_code >= 400:
@@ -102,8 +71,8 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
 
         data = response.json()
 
-
-        if data.get("gender") is None or data.get("count") == 0:
+        # Edge case — no prediction available
+        if data.get("gender") is None or data.get("count", 0) == 0:
             raise HTTPException(
                 status_code=422,
                 detail={
@@ -113,17 +82,20 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
             )
 
         probability = data.get("probability", 0)
+        sample_size = data.get("count", 0)
 
-        transformed = {
-            "name": data.get("name"),
-            "gender": data.get("gender"),
-            "probability": probability,
-            "is_confident": probability >= 0.7,
-            "sample_size": data.get("count"),
-            "processed_at": datetime.utcnow().isoformat(),
+        return {
+            "status": "success",
+            "data": {
+                "name": data.get("name"),
+                "gender": data.get("gender"),
+                "probability": probability,
+                "sample_size": sample_size,
+                "is_confident": probability >= 0.7
+                and sample_size >= 100,  # ✅ both conditions
+                "processed_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
         }
-
-        return {"success": 200, "data": transformed}
 
     except HTTPException:
         raise
@@ -138,15 +110,6 @@ async def classify(request: Request, name: str = Query(..., min_length=1)):
         raise HTTPException(
             status_code=502,
             detail={"status": "error", "message": "Failed to connect to Genderize API"},
-        )
-
-    except ValueError:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "status": "error",
-                "message": "Error parsing response from Genderize API",
-            },
         )
 
     except Exception:
